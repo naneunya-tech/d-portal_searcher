@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Aid Project Map</title>
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIINfQz1AplGS9aA+5aRmb16C4Rj3yQgyRk="
+      crossorigin=""
+    >
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css"
+    >
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css"
+    >
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <main class="app-shell">
+      <aside class="sidebar" aria-label="검색 및 프로젝트 목록">
+        <header class="brand">
+          <div>
+            <p class="eyebrow">IATI / d-portal</p>
+            <h1>Aid Project Map</h1>
+          </div>
+          <span class="source-badge">Live</span>
+        </header>
+
+        <form class="controls" id="query-form">
+          <label>
+            <span>수원국 코드</span>
+            <input id="country-code" maxlength="2" autocomplete="off" placeholder="예: BD">
+          </label>
+
+          <label>
+            <span>상태</span>
+            <select id="status-code">
+              <option value="">전체</option>
+              <option value="1">Pipeline</option>
+              <option value="2">Implementation</option>
+              <option value="3">Finalisation</option>
+              <option value="4">Closed</option>
+              <option value="5">Cancelled</option>
+              <option value="6">Suspended</option>
+            </select>
+          </label>
+
+          <label>
+            <span>정렬</span>
+            <select id="order-by">
+              <option value="" selected>d-portal 기본</option>
+              <option value="day_start-">최근 시작</option>
+              <option value="commitment-">약정액 큰 순</option>
+              <option value="day_end-">종료일 먼 순</option>
+            </select>
+          </label>
+
+          <label>
+            <span>가져올 수</span>
+            <select id="limit">
+              <option value="500">500</option>
+              <option value="1000" selected>1000</option>
+              <option value="2000">2000</option>
+            </select>
+          </label>
+
+          <label class="wide">
+            <span>검색어</span>
+            <input id="keyword" autocomplete="off" placeholder="프로젝트명, 기관, 설명">
+          </label>
+
+          <label class="toggle wide">
+            <input id="active-filter" type="checkbox">
+            <span>기준일에 진행 중인 프로젝트만</span>
+          </label>
+
+          <label class="wide date-row">
+            <span>기준일</span>
+            <input id="as-of-date" type="date" value="2026-05-28">
+          </label>
+
+          <button class="primary wide" type="submit">불러오기</button>
+        </form>
+
+        <section class="stats" aria-label="요약">
+          <div>
+            <strong id="stat-projects">0</strong>
+            <span>프로젝트</span>
+          </div>
+          <div>
+            <strong id="stat-points">0</strong>
+            <span>지도 지점</span>
+          </div>
+          <div>
+            <strong id="stat-commitment">-</strong>
+            <span>약정액</span>
+          </div>
+        </section>
+
+        <div class="actions">
+          <button id="load-more" type="button">더 불러오기</button>
+          <button id="download-csv" type="button">CSV</button>
+        </div>
+
+        <p class="status-line" id="status-line">d-portal에서 데이터를 기다리는 중</p>
+        <ol class="project-list" id="project-list" aria-label="프로젝트 목록"></ol>
+      </aside>
+
+      <section class="map-panel" aria-label="프로젝트 지도">
+        <div id="map"></div>
+        <div class="legend" aria-label="범례">
+          <span><i class="legend-dot active"></i>Implementation</span>
+          <span><i class="legend-dot planned"></i>Pipeline / Finalisation</span>
+          <span><i class="legend-dot closed"></i>Closed / Other</span>
+        </div>
+      </section>
+    </main>
+
+    <script
+      src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+      integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+      crossorigin=""
+    ></script>
+    <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>
