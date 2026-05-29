@@ -1,6 +1,12 @@
 const API_BASE = "https://d-portal.org/q.json";
 const DPORTAL_ACTIVITY = "https://d-portal.iatistandard.org/ctrack.html#view=act&aid=";
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
+const THEME_STORAGE_KEY = "aid-project-map-theme";
+
+const tileUrls = {
+  light: "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
+  dark: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
+};
 
 const state = {
   rows: [],
@@ -26,6 +32,7 @@ const els = {
   statProjects: document.querySelector("#stat-projects"),
   statPoints: document.querySelector("#stat-points"),
   statCommitment: document.querySelector("#stat-commitment"),
+  themeToggle: document.querySelector("#theme-toggle"),
 };
 
 const statusLabels = {
@@ -47,20 +54,30 @@ const statusColors = {
 };
 
 const map = L.map("map", {
+  fadeAnimation: false,
+  markerZoomAnimation: false,
+  scrollWheelZoom: "center",
+  wheelDebounceTime: 80,
+  wheelPxPerZoomLevel: 100,
   zoomControl: false,
+  zoomAnimation: false,
 }).setView([18, 12], 2);
 
 L.control.zoom({ position: "topright" }).addTo(map);
 
-L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+const baseLayer = L.tileLayer(tileUrls.light, {
+  attribution:
+    '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
+  detectRetina: true,
+  keepBuffer: 4,
   maxZoom: 18,
   updateWhenIdle: false,
-  keepBuffer: 3,
-  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
 }).addTo(map);
 
 const markerLayer = L.markerClusterGroup
   ? L.markerClusterGroup({
+      animate: false,
+      animateAddingMarkers: false,
       showCoverageOnHover: false,
       maxClusterRadius: 42,
       spiderfyDistanceMultiplier: 1.2,
@@ -68,6 +85,38 @@ const markerLayer = L.markerClusterGroup
   : L.layerGroup();
 
 markerLayer.addTo(map);
+window.aidProjectMap = { map, markerLayer, state };
+
+function getStoredTheme() {
+  try {
+    return localStorage.getItem(THEME_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function getSystemTheme() {
+  return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
+
+function setStoredTheme(theme) {
+  try {
+    localStorage.setItem(THEME_STORAGE_KEY, theme);
+  } catch {
+    // The theme still applies for the current session if storage is unavailable.
+  }
+}
+
+function applyTheme(theme, { persist = false } = {}) {
+  const nextTheme = theme === "dark" ? "dark" : "light";
+  document.documentElement.dataset.theme = nextTheme;
+  els.themeToggle?.setAttribute("aria-pressed", String(nextTheme === "dark"));
+  els.themeToggle?.setAttribute("aria-label", nextTheme === "dark" ? "라이트모드 켜기" : "다크모드 켜기");
+  els.themeToggle?.setAttribute("title", nextTheme === "dark" ? "라이트모드" : "다크모드");
+  baseLayer.setUrl(tileUrls[nextTheme]);
+  if (persist) setStoredTheme(nextTheme);
+  baseLayer.redraw();
+}
 
 function dateToDay(value) {
   const time = Date.parse(`${value}T00:00:00Z`);
@@ -259,13 +308,11 @@ function renderMarkers(rows) {
     markerLayer.addLayer(marker);
     state.markersByKey.set(key, marker);
   }
-
-  refreshMapLayout();
 }
 
 function refreshMapLayout() {
   const refresh = () => {
-    map.invalidateSize({ pan: false });
+    map.invalidateSize({ animate: false, pan: false });
   };
 
   requestAnimationFrame(refresh);
@@ -434,7 +481,17 @@ els.form.addEventListener("submit", (event) => {
 els.loadMore.addEventListener("click", () => loadProjects({ append: true }));
 els.downloadCsv.addEventListener("click", downloadCsv);
 els.keyword.addEventListener("input", render);
+els.themeToggle?.addEventListener("click", () => {
+  const currentTheme = document.documentElement.dataset.theme === "dark" ? "dark" : "light";
+  applyTheme(currentTheme === "dark" ? "light" : "dark", { persist: true });
+});
 window.addEventListener("resize", refreshMapLayout);
-window.addEventListener("load", refreshMapLayout);
+map.on("zoomstart", () => map.getContainer().classList.add("is-map-zooming"));
+map.on("zoomend", () => {
+  map.getContainer().classList.remove("is-map-zooming");
+  baseLayer.redraw();
+});
+
+applyTheme(getStoredTheme() || getSystemTheme());
 
 loadProjects({ append: false });
