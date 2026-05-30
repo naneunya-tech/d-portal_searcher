@@ -44,29 +44,33 @@
         </header>
 
         <form class="controls" id="query-form">
-          <label>
-            <span>수원국 코드</span>
-            <input id="country-code" maxlength="2" autocomplete="off" placeholder="예: BD">
-          </label>
+          <details class="filter-block wide" open>
+            <summary id="country-summary">수원국</summary>
+            <input id="country-search" class="filter-search" autocomplete="off" placeholder="국가명 또는 코드">
+            <div class="checkbox-grid country-grid" id="country-options" aria-label="수원국 코드"></div>
+          </details>
 
-          <label>
-            <span>상태</span>
-            <select id="status-code">
-              <option value="">전체</option>
-              <option value="1">Pipeline</option>
-              <option value="2">Implementation</option>
-              <option value="3">Finalisation</option>
-              <option value="4">Closed</option>
-              <option value="5">Cancelled</option>
-              <option value="6">Suspended</option>
-            </select>
-          </label>
+          <details class="filter-block" open>
+            <summary id="status-summary">상태</summary>
+            <div class="checkbox-grid compact-grid" id="status-options" aria-label="프로젝트 상태"></div>
+          </details>
+
+          <details class="filter-block" open>
+            <summary id="size-summary">프로젝트 규모</summary>
+            <div class="checkbox-grid compact-grid" id="size-options" aria-label="프로젝트 규모"></div>
+          </details>
+
+          <details class="filter-block wide">
+            <summary id="org-summary">공여국/기관</summary>
+            <input id="org-search" class="filter-search" autocomplete="off" placeholder="기관명 또는 코드">
+            <div class="checkbox-grid org-grid" id="org-options" aria-label="공여국 또는 기관"></div>
+          </details>
 
           <label>
             <span>정렬</span>
             <select id="order-by">
-              <option value="" selected>d-portal 기본</option>
-              <option value="day_start-">최근 시작</option>
+              <option value="">d-portal 기본</option>
+              <option value="day_start-" selected>최근 시작</option>
               <option value="commitment-">약정액 큰 순</option>
               <option value="day_end-">종료일 먼 순</option>
             </select>

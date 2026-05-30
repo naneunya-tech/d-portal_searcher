@@ -2,24 +2,42 @@ const API_BASE = "https://d-portal.org/q.json";
 const DPORTAL_ACTIVITY = "https://d-portal.iatistandard.org/ctrack.html#view=act&aid=";
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const THEME_STORAGE_KEY = "aid-project-map-theme";
+const MAX_SERVER_FILTER_REQUESTS = 18;
 
 const tileUrls = {
-  light: "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
+  light: "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",
   dark: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
 };
 
 const state = {
   rows: [],
+  filters: {
+    countries: new Set(),
+    statuses: new Set(),
+    orgs: new Set(),
+    sizes: new Set(),
+  },
   markersByKey: new Map(),
+  orgOptions: new Map(),
   lastQueryKey: "",
   offset: 0,
   loading: false,
 };
 
+let serverReloadTimer = null;
+
 const els = {
   form: document.querySelector("#query-form"),
-  country: document.querySelector("#country-code"),
-  status: document.querySelector("#status-code"),
+  countrySearch: document.querySelector("#country-search"),
+  countryOptions: document.querySelector("#country-options"),
+  countrySummary: document.querySelector("#country-summary"),
+  statusOptions: document.querySelector("#status-options"),
+  statusSummary: document.querySelector("#status-summary"),
+  sizeOptions: document.querySelector("#size-options"),
+  sizeSummary: document.querySelector("#size-summary"),
+  orgSearch: document.querySelector("#org-search"),
+  orgOptions: document.querySelector("#org-options"),
+  orgSummary: document.querySelector("#org-summary"),
   orderBy: document.querySelector("#order-by"),
   limit: document.querySelector("#limit"),
   keyword: document.querySelector("#keyword"),
@@ -53,6 +71,54 @@ const statusColors = {
   6: "#c0445d",
 };
 
+const sizeRanges = [
+  { value: "unknown", label: "금액 없음", min: null, max: null },
+  { value: "under-1m", label: "1M 미만", min: 0, max: 1_000_000 },
+  { value: "1m-10m", label: "1M - 10M", min: 1_000_000, max: 10_000_000 },
+  { value: "10m-100m", label: "10M - 100M", min: 10_000_000, max: 100_000_000 },
+  { value: "over-100m", label: "100M 이상", min: 100_000_000, max: Infinity },
+];
+
+const countryCodes = [
+  "AF", "AX", "AL", "DZ", "AS", "AD", "AO", "AI", "AQ", "AG", "AR", "AM", "AW", "AU", "AT", "AZ",
+  "BS", "BH", "BD", "BB", "BY", "BE", "BZ", "BJ", "BM", "BT", "BO", "BQ", "BA", "BW", "BV", "BR",
+  "IO", "BN", "BG", "BF", "BI", "CV", "KH", "CM", "CA", "KY", "CF", "TD", "CL", "CN", "CX", "CC",
+  "CO", "KM", "CG", "CD", "CK", "CR", "CI", "HR", "CU", "CW", "CY", "CZ", "DK", "DJ", "DM", "DO",
+  "EC", "EG", "SV", "GQ", "ER", "EE", "SZ", "ET", "FK", "FO", "FJ", "FI", "FR", "GF", "PF", "TF",
+  "GA", "GM", "GE", "DE", "GH", "GI", "GR", "GL", "GD", "GP", "GU", "GT", "GG", "GN", "GW", "GY",
+  "HT", "HM", "VA", "HN", "HK", "HU", "IS", "IN", "ID", "IR", "IQ", "IE", "IM", "IL", "IT", "JM",
+  "JP", "JE", "JO", "KZ", "KE", "KI", "KP", "KR", "KW", "KG", "LA", "LV", "LB", "LS", "LR", "LY",
+  "LI", "LT", "LU", "MO", "MG", "MW", "MY", "MV", "ML", "MT", "MH", "MQ", "MR", "MU", "YT", "MX",
+  "FM", "MD", "MC", "MN", "ME", "MS", "MA", "MZ", "MM", "NA", "NR", "NP", "NL", "NC", "NZ", "NI",
+  "NE", "NG", "NU", "NF", "MK", "MP", "NO", "OM", "PK", "PW", "PS", "PA", "PG", "PY", "PE", "PH",
+  "PN", "PL", "PT", "PR", "QA", "RE", "RO", "RU", "RW", "BL", "SH", "KN", "LC", "MF", "PM", "VC",
+  "WS", "SM", "ST", "SA", "SN", "RS", "SC", "SL", "SG", "SX", "SK", "SI", "SB", "SO", "ZA", "GS",
+  "SS", "ES", "LK", "SD", "SR", "SJ", "SE", "CH", "SY", "TW", "TJ", "TZ", "TH", "TL", "TG", "TK",
+  "TO", "TT", "TN", "TR", "TM", "TC", "TV", "UG", "UA", "AE", "GB", "US", "UM", "UY", "UZ", "VU",
+  "VE", "VN", "VG", "VI", "WF", "EH", "YE", "ZM", "ZW", "XK",
+];
+
+let regionNames = null;
+try {
+  regionNames = new Intl.DisplayNames(["ko"], { type: "region" });
+} catch {
+  regionNames = null;
+}
+
+const countryOptions = countryCodes
+  .map((code) => {
+    let name = code;
+    try {
+      name = regionNames?.of(code) || code;
+    } catch {
+      name = code === "XK" ? "코소보" : code;
+    }
+    return { value: code, label: `${code} ${name}` };
+  })
+  .sort((a, b) => a.label.localeCompare(b.label, "ko"));
+
+const statusOptions = Object.entries(statusLabels).map(([value, label]) => ({ value, label }));
+
 const map = L.map("map", {
   fadeAnimation: false,
   markerZoomAnimation: false,
@@ -68,10 +134,11 @@ L.control.zoom({ position: "topright" }).addTo(map);
 const baseLayer = L.tileLayer(tileUrls.light, {
   attribution:
     '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
-  detectRetina: true,
-  keepBuffer: 4,
+  detectRetina: false,
+  keepBuffer: 6,
   maxZoom: 18,
-  updateWhenIdle: false,
+  updateWhenIdle: true,
+  updateWhenZooming: false,
 }).addTo(map);
 
 const markerLayer = L.markerClusterGroup
@@ -167,16 +234,48 @@ function rowKey(row) {
   ].join("|");
 }
 
+function dataRowKey(row) {
+  return [rowKey(row), row.country_code || "", row.country_percent || ""].join("|");
+}
+
 function hasValidLocation(row) {
   const lat = Number(row.location_latitude);
   const lon = Number(row.location_longitude);
   return Number.isFinite(lat) && Number.isFinite(lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180;
 }
 
+function getSizeBucket(value) {
+  const amount = Number(value);
+  if (!Number.isFinite(amount) || amount <= 0) return "unknown";
+  const range = sizeRanges.find((item) => item.value !== "unknown" && amount >= item.min && amount < item.max);
+  return range?.value || "unknown";
+}
+
+function getOrgEntries(row) {
+  const entries = [];
+  const reporting = cleanText(row.reporting);
+  const reportingRef = cleanText(row.reporting_ref);
+  const funderRef = cleanText(row.funder_ref);
+
+  if (reporting || reportingRef) {
+    const key = `reporting:${(reportingRef || reporting).toUpperCase()}`;
+    const label = reporting && reportingRef ? `기관: ${reporting} (${reportingRef})` : `기관: ${reporting || reportingRef}`;
+    entries.push({ key, label });
+  }
+
+  if (funderRef) {
+    entries.push({ key: `funder:${funderRef.toUpperCase()}`, label: `공여: ${funderRef}` });
+  }
+
+  return entries;
+}
+
 function getFilterValues() {
   return {
-    country: els.country.value.trim().toUpperCase(),
-    status: els.status.value,
+    countries: Array.from(state.filters.countries).sort(),
+    statuses: Array.from(state.filters.statuses).sort(),
+    orgs: Array.from(state.filters.orgs).sort(),
+    sizes: Array.from(state.filters.sizes).sort(),
     orderBy: els.orderBy.value,
     limit: Number(els.limit.value) || 1000,
     keyword: els.keyword.value.trim().toLowerCase(),
@@ -187,8 +286,8 @@ function getFilterValues() {
 
 function queryKey(filters) {
   return JSON.stringify({
-    country: filters.country,
-    status: filters.status,
+    countries: filters.countries,
+    statuses: filters.statuses,
     orderBy: filters.orderBy,
     limit: filters.limit,
     activeOnly: filters.activeOnly,
@@ -196,15 +295,15 @@ function queryKey(filters) {
   });
 }
 
-function buildApiUrl(filters, offset) {
+function buildApiUrl(filters, offset, slice = {}) {
   const params = new URLSearchParams({
-    from: "act,location",
+    from: slice.country || slice.countryJoin ? "act,location,country" : "act,location",
     limit: String(filters.limit),
     offset: String(offset),
   });
 
-  if (filters.country) params.set("country_code", filters.country);
-  if (filters.status) params.set("status_code", filters.status);
+  if (slice.country) params.set("country_code", slice.country);
+  if (slice.status) params.set("status_code", slice.status);
   if (filters.orderBy) params.set("orderby", filters.orderBy);
 
   if (filters.activeOnly) {
@@ -218,12 +317,28 @@ function buildApiUrl(filters, offset) {
   return `${API_BASE}?${params.toString()}`;
 }
 
+function buildApiUrls(filters, offset) {
+  const countrySlices = filters.countries.length ? filters.countries : [""];
+  const statusSlices = filters.statuses.length ? filters.statuses : [""];
+  const combinationCount = countrySlices.length * statusSlices.length;
+  const hasServerFilters = filters.countries.length > 0 || filters.statuses.length > 0;
+  const shouldSlice = hasServerFilters && combinationCount <= MAX_SERVER_FILTER_REQUESTS;
+
+  if (!shouldSlice) return [buildApiUrl(filters, offset, { countryJoin: filters.countries.length > 0 })];
+
+  return countrySlices.flatMap((country) =>
+    statusSlices.map((status) => buildApiUrl(filters, offset, { country, status }))
+  );
+}
+
 function rowMatchesKeyword(row, keyword) {
   if (!keyword) return true;
   const haystack = [
     row.title,
     row.reporting,
+    row.reporting_ref,
     row.funder_ref,
+    row.country_code,
     row.location_name,
     row.description,
     row.aid,
@@ -234,11 +349,28 @@ function rowMatchesKeyword(row, keyword) {
   return haystack.includes(keyword);
 }
 
+function rowMatchesFilters(row, filters) {
+  const countryCode = cleanText(row.country_code).toUpperCase();
+  if (filters.countries.length && !filters.countries.includes(countryCode)) return false;
+
+  const statusCode = String(row.status_code || "");
+  if (filters.statuses.length && !filters.statuses.includes(statusCode)) return false;
+
+  if (filters.orgs.length) {
+    const rowOrgKeys = getOrgEntries(row).map((entry) => entry.key);
+    if (!rowOrgKeys.some((key) => filters.orgs.includes(key))) return false;
+  }
+
+  if (filters.sizes.length && !filters.sizes.includes(getSizeBucket(row.commitment))) return false;
+
+  return rowMatchesKeyword(row, filters.keyword);
+}
+
 function getVisibleRows() {
   const filters = getFilterValues();
   const seen = new Set();
   return state.rows.filter((row) => {
-    if (!hasValidLocation(row) || !rowMatchesKeyword(row, filters.keyword)) return false;
+    if (!hasValidLocation(row) || !rowMatchesFilters(row, filters)) return false;
     const key = rowKey(row);
     if (seen.has(key)) return false;
     seen.add(key);
@@ -268,6 +400,7 @@ function createPopup(row) {
   const title = escapeHtml(cleanText(row.title) || row.aid);
   const reporting = escapeHtml(cleanText(row.reporting) || "Unknown reporting org");
   const location = escapeHtml(cleanText(row.location_name) || "No location name");
+  const country = escapeHtml(cleanText(row.country_code) || "-");
   const status = escapeHtml(statusLabels[row.status_code] || `Status ${row.status_code || "-"}`);
   const start = dayToDate(row.day_start);
   const end = dayToDate(row.day_end);
@@ -277,7 +410,7 @@ function createPopup(row) {
     <div class="popup">
       <h3>${title}</h3>
       <p><strong>${reporting}</strong></p>
-      <p>${location}</p>
+      <p>${location} · ${country}</p>
       <p>${status} · ${start} - ${end}</p>
       <p>Commitment: ${escapeHtml(formatMoney(row.commitment))}</p>
       <a href="${activityUrl}" target="_blank" rel="noreferrer">d-portal</a>
@@ -348,13 +481,16 @@ function renderList(rows) {
       const status = document.createElement("span");
       status.className = "pill";
       status.textContent = statusLabels[row.status_code] || "Unknown";
-      const location = document.createElement("span");
-      location.className = "pill";
-      location.textContent = cleanText(row.location_name) || "Location";
+      const country = document.createElement("span");
+      country.className = "pill";
+      country.textContent = cleanText(row.country_code || row.location_name) || "Location";
+      const amount = document.createElement("span");
+      amount.className = "pill";
+      amount.textContent = formatMoney(row.commitment);
       const dates = document.createElement("span");
       dates.className = "pill";
       dates.textContent = `${dayToDate(row.day_start)} - ${dayToDate(row.day_end)}`;
-      meta.append(status, location, dates);
+      meta.append(status, country, amount, dates);
 
       item.append(title, org, meta);
       item.addEventListener("click", () => focusMarker(row));
@@ -372,6 +508,117 @@ function focusMarker(row) {
   const latLng = marker.getLatLng();
   map.setView(latLng, Math.max(map.getZoom(), 6), { animate: true });
   marker.openPopup();
+}
+
+function updateFilterSummary(summary, count) {
+  if (!summary) return;
+  if (count > 0) {
+    summary.dataset.count = `${count}개 선택`;
+  } else {
+    summary.removeAttribute("data-count");
+  }
+}
+
+function updateFilterSummaries() {
+  updateFilterSummary(els.countrySummary, state.filters.countries.size);
+  updateFilterSummary(els.statusSummary, state.filters.statuses.size);
+  updateFilterSummary(els.sizeSummary, state.filters.sizes.size);
+  updateFilterSummary(els.orgSummary, state.filters.orgs.size);
+}
+
+function createCheckbox(option, selectedSet, groupName) {
+  const label = document.createElement("label");
+  label.className = "filter-check";
+  label.title = option.label;
+
+  const input = document.createElement("input");
+  input.type = "checkbox";
+  input.name = groupName;
+  input.value = option.value;
+  input.checked = selectedSet.has(option.value);
+
+  const text = document.createElement("span");
+  text.textContent = option.label;
+
+  label.append(input, text);
+  return label;
+}
+
+function renderCheckboxList(container, options, selectedSet, groupName, emptyText) {
+  if (!options.length) {
+    const empty = document.createElement("p");
+    empty.className = "empty-filter";
+    empty.textContent = emptyText;
+    container.replaceChildren(empty);
+    return;
+  }
+
+  container.replaceChildren(...options.map((option) => createCheckbox(option, selectedSet, groupName)));
+}
+
+function renderCountryOptions() {
+  const keyword = els.countrySearch.value.trim().toLowerCase();
+  const options = countryOptions.filter((option) => option.label.toLowerCase().includes(keyword));
+  renderCheckboxList(els.countryOptions, options, state.filters.countries, "countries", "해당 국가 코드가 없습니다.");
+}
+
+function renderStatusOptions() {
+  renderCheckboxList(els.statusOptions, statusOptions, state.filters.statuses, "statuses", "상태가 없습니다.");
+}
+
+function renderSizeOptions() {
+  renderCheckboxList(els.sizeOptions, sizeRanges, state.filters.sizes, "sizes", "규모 구간이 없습니다.");
+}
+
+function collectOrgOptions(rows) {
+  const options = new Map();
+  for (const row of rows) {
+    for (const entry of getOrgEntries(row)) {
+      if (!options.has(entry.key)) options.set(entry.key, { value: entry.key, label: entry.label, count: 0 });
+      options.get(entry.key).count += 1;
+    }
+  }
+  state.orgOptions = options;
+}
+
+function renderOrgOptions() {
+  const keyword = els.orgSearch.value.trim().toLowerCase();
+  const options = Array.from(state.orgOptions.values())
+    .map((option) => ({
+      value: option.value,
+      label: `${option.label} (${new Intl.NumberFormat("en").format(option.count)})`,
+      searchText: `${option.label} ${option.value}`.toLowerCase(),
+    }))
+    .filter((option) => option.searchText.includes(keyword))
+    .sort((a, b) => a.label.localeCompare(b.label, "ko"));
+
+  renderCheckboxList(
+    els.orgOptions,
+    options,
+    state.filters.orgs,
+    "orgs",
+    state.rows.length ? "해당 기관이 없습니다." : "데이터를 불러온 뒤 선택할 수 있습니다."
+  );
+}
+
+function handleFilterChange(filterName, renderOptions) {
+  return (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLInputElement) || target.type !== "checkbox") return;
+    if (target.checked) {
+      state.filters[filterName].add(target.value);
+    } else {
+      state.filters[filterName].delete(target.value);
+    }
+    updateFilterSummaries();
+    renderOptions?.();
+    render();
+  };
+}
+
+function scheduleServerReload() {
+  window.clearTimeout(serverReloadTimer);
+  serverReloadTimer = window.setTimeout(() => loadProjects({ append: false }), 250);
 }
 
 function render() {
@@ -403,22 +650,26 @@ async function loadProjects({ append = false } = {}) {
 
   if (!append || key !== state.lastQueryKey) {
     state.rows = [];
+    state.orgOptions.clear();
     state.offset = 0;
     state.lastQueryKey = key;
+    renderOrgOptions();
   }
 
   setLoading(true);
   try {
-    const url = buildApiUrl(filters, state.offset);
-    const response = await fetch(url);
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const payload = await response.json();
-    const rawRows = Array.isArray(payload.rows) ? payload.rows : [];
+    const urls = buildApiUrls(filters, state.offset);
+    const responses = await Promise.all(urls.map((url) => fetch(url)));
+    const badResponse = responses.find((response) => !response.ok);
+    if (badResponse) throw new Error(`HTTP ${badResponse.status}`);
+
+    const payloads = await Promise.all(responses.map((response) => response.json()));
+    const rawRows = payloads.flatMap((payload) => (Array.isArray(payload.rows) ? payload.rows : []));
     const rows = rawRows.filter(hasValidLocation);
 
-    const knownKeys = new Set(state.rows.map(rowKey));
+    const knownKeys = new Set(state.rows.map(dataRowKey));
     for (const row of rows) {
-      const keyForRow = rowKey(row);
+      const keyForRow = dataRowKey(row);
       if (!knownKeys.has(keyForRow)) {
         state.rows.push(row);
         knownKeys.add(keyForRow);
@@ -427,6 +678,8 @@ async function loadProjects({ append = false } = {}) {
 
     state.offset += filters.limit;
     els.loadMore.disabled = rawRows.length === 0;
+    collectOrgOptions(state.rows);
+    renderOrgOptions();
     render();
   } catch (error) {
     console.error(error);
@@ -442,6 +695,9 @@ function downloadCsv() {
     "aid",
     "title",
     "reporting",
+    "reporting_ref",
+    "funder_ref",
+    "country_code",
     "status_code",
     "day_start",
     "day_end",
@@ -449,6 +705,7 @@ function downloadCsv() {
     "location_latitude",
     "location_longitude",
     "commitment",
+    "commitment_eur",
     "spend",
   ];
 
@@ -478,6 +735,18 @@ els.form.addEventListener("submit", (event) => {
   loadProjects({ append: false });
 });
 
+els.countryOptions.addEventListener("change", (event) => {
+  handleFilterChange("countries", renderCountryOptions)(event);
+  scheduleServerReload();
+});
+els.statusOptions.addEventListener("change", (event) => {
+  handleFilterChange("statuses", renderStatusOptions)(event);
+  scheduleServerReload();
+});
+els.sizeOptions.addEventListener("change", handleFilterChange("sizes", renderSizeOptions));
+els.orgOptions.addEventListener("change", handleFilterChange("orgs", renderOrgOptions));
+els.countrySearch.addEventListener("input", renderCountryOptions);
+els.orgSearch.addEventListener("input", renderOrgOptions);
 els.loadMore.addEventListener("click", () => loadProjects({ append: true }));
 els.downloadCsv.addEventListener("click", downloadCsv);
 els.keyword.addEventListener("input", render);
@@ -492,6 +761,11 @@ map.on("zoomend", () => {
   baseLayer.redraw();
 });
 
+renderCountryOptions();
+renderStatusOptions();
+renderSizeOptions();
+renderOrgOptions();
+updateFilterSummaries();
 applyTheme(getStoredTheme() || getSystemTheme());
 
 loadProjects({ append: false });

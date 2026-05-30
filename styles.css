@@ -77,6 +77,9 @@ select {
   background: var(--panel);
   border-right: 1px solid var(--line);
   box-shadow: var(--shadow);
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   z-index: 500;
 }
 
@@ -189,6 +192,146 @@ select {
   outline: none;
 }
 
+.filter-block {
+  display: block;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-soft);
+}
+
+.filter-block summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+  list-style: none;
+}
+
+.filter-block summary::-webkit-details-marker {
+  display: none;
+}
+
+.filter-block summary::after {
+  content: "+";
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--ink);
+  background: var(--control);
+  flex-shrink: 0;
+  font-size: 13px;
+  line-height: 1;
+  order: 3;
+}
+
+.filter-block[open] summary::after {
+  content: "-";
+}
+
+.filter-block summary[data-count]::before {
+  content: attr(data-count);
+  margin-left: auto;
+  color: var(--teal);
+  font-size: 11px;
+  order: 2;
+}
+
+.filter-search {
+  margin-top: 10px;
+  min-height: 36px;
+}
+
+.checkbox-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
+  gap: 6px;
+  max-height: 178px;
+  margin-top: 10px;
+  padding-right: 2px;
+  overflow-y: auto;
+}
+
+.compact-grid {
+  grid-template-columns: 1fr;
+  max-height: none;
+  overflow: visible;
+}
+
+.org-grid {
+  grid-template-columns: 1fr;
+  max-height: 170px;
+}
+
+.filter-check {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  min-height: 30px;
+  gap: 7px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink);
+  background: var(--control);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.filter-check:hover {
+  border-color: rgba(22, 138, 132, 0.55);
+}
+
+.filter-check input {
+  width: 14px;
+  min-height: 14px;
+  margin: 0;
+  accent-color: var(--teal);
+  flex-shrink: 0;
+}
+
+.filter-check span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.compact-grid .filter-check {
+  min-height: 32px;
+  padding: 0 6px;
+  font-size: 11px;
+}
+
+.compact-grid .filter-check span {
+  overflow: visible;
+  overflow-wrap: anywhere;
+  text-overflow: clip;
+  white-space: normal;
+}
+
+.filter-check:has(input:checked) {
+  border-color: rgba(22, 138, 132, 0.65);
+  background: rgba(22, 138, 132, 0.1);
+}
+
+.empty-filter {
+  margin: 0;
+  padding: 7px 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
 input:focus,
 select:focus {
   border-color: var(--teal);
@@ -295,7 +438,7 @@ select:focus {
   gap: 10px;
   margin: 0;
   padding: 0 22px 22px;
-  overflow: auto;
+  overflow: visible;
   list-style: none;
 }
 
@@ -390,6 +533,14 @@ select:focus {
 
 .leaflet-tile-pane {
   z-index: 200;
+}
+
+:root:not([data-theme="dark"]) .leaflet-tile-pane {
+  filter: saturate(1.15) contrast(1.12) brightness(1.03);
+}
+
+:root[data-theme="dark"] .leaflet-tile-pane {
+  filter: saturate(1.08) contrast(1.08);
 }
 
 .leaflet-overlay-pane {
